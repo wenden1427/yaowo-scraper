@@ -1,0 +1,15 @@
+python/
+cloakbrowser/
+data/
+chrome_profile/
+Outputs/
+Logs/
+*.zip
+*.pkl
+.session*
+error.log
+scraped_skus.txt
+saved_urls.txt
+__pycache__/
+*.pyc
+.DS_Store

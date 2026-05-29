@@ -1,0 +1,97 @@
+[09:50:28] Browser ready (single shared page — no focus steal)
+[09:50:28] [1/107] https://kr.shein.com/Korean-Niche-Design-Pointed-Toe-Slim-Heel-Skinny-Boots-For-...
+[09:50:38]   [커피 브라운] 23590 | 6 sizes | 7 imgs
+[09:50:39]   [MEM TOP10]
+[09:50:39]     35677KB |  2719x | E:\ai-test\scraper-portable\python\Lib\json\decoder.py:361
+[09:50:39]     35469KB |    23x | E:\ai-test\scraper-portable\scraper\gui.py:114
+[09:50:39]     15054KB | 120292x | <frozen importlib._bootstrap_external>:511
+[09:50:39]     4848KB | 10432x | E:\ai-test\scraper-portable\python\Lib\site-packages\bs4\element.py:1487
+[09:50:39]     4551KB |     1x | E:\ai-test\scraper-portable\python\Lib\site-packages\patchright\_impl\_transport.py:126
+[09:50:39]     2828KB | 14862x | E:\ai-test\scraper-portable\python\Lib\site-packages\bs4\__init__.py:1035
+[09:50:39]     2748KB | 28522x | E:\ai-test\scraper-portable\python\Lib\linecache.py:188
+[09:50:39]     2432KB | 42291x | E:\ai-test\scraper-portable\python\Lib\site-packages\bs4\builder\_lxml.py:494
+[09:50:39]     1677KB | 15602x | <frozen importlib._bootstrap>:491
+[09:50:39]     831KB |  8185x | E:\ai-test\scraper-portable\python\Lib\site-packages\bs4\builder\_lxml.py:392
+[09:50:39]   [브라운] 23490 | 6 sizes | 6 imgs
+[09:50:40]   [MEM TOP10]
+[09:50:40]     35677KB |  2719x | E:\ai-test\scraper-portable\python\Lib\json\decoder.py:361
+[09:50:40]     35469KB |    23x | E:\ai-test\scraper-portable\scraper\gui.py:114
+[09:50:40]     15054KB | 120292x | <frozen importlib._bootstrap_external>:511
+[09:50:40]     4848KB | 10432x | E:\ai-test\scraper-portable\python\Lib\site-packages\bs4\element.py:1487
+[09:50:40]     4551KB |     1x | E:\ai-test\scraper-portable\python\Lib\site-packages\patchright\_impl\_transport.py:126
+[09:50:40]     2828KB | 14862x | E:\ai-test\scraper-portable\python\Lib\site-packages\bs4\__init__.py:1035
+[09:50:40]     2748KB | 28522x | E:\ai-test\scraper-portable\python\Lib\linecache.py:188
+[09:50:40]     2432KB | 42291x | E:\ai-test\scraper-portable\python\Lib\site-packages\bs4\builder\_lxml.py:494
+[09:50:40]     1677KB | 15601x | <frozen importlib._bootstrap>:491
+[09:50:40]     831KB |  8185x | E:\ai-test\scraper-portable\python\Lib\site-packages\bs4\builder\_lxml.py:392
+[09:50:40]   [wait 4.3s]
+[09:50:44] [2/107] https://kr.shein.com/Women-s-Flat-Tassel-Sandals-Open-Toe-Plus-Size-43-p-4447487...
+[09:50:56]   [브라운] 12543 | 1 sizes | 9 imgs
+[09:50:56]   [블랙] 11234 | 1 sizes | 9 imgs
+[09:50:56]   [노란색] 14190 | 1 sizes | 7 imgs
+[09:50:56]   [wait 4.9s]
+[09:51:01] [3/107] https://kr.shein.com/Gorgeous-Pointed-Toe-Stiletto-High-Heel-Shoes-2026-Spring-N...
+[09:51:18]   [베이지] 20790 | 9 sizes | 7 imgs
+[09:51:18]   [블랙] 25790 | 8 sizes | 5 imgs
+[09:51:18]   [골드] 16790 | 9 sizes | 5 imgs
+[09:51:18]   [블랙] 18072 | 8 sizes | 5 imgs
+[09:51:18]   [wait 4.7s]
+[09:51:22] [4/107] https://kr.shein.com/Fall-Winter-2025-Spring-Summer-New-European-American-Pointe...
+[09:51:36]   [브라운] 26790 | 9 sizes | 7 imgs
+[09:51:36]   [베이지] 25696 | 8 sizes | 7 imgs
+[09:51:36]   [블랙] 26690 | 8 sizes | 8 imgs
+[09:51:36]   [wait 4.5s]
+[09:51:41] Stopped! All browser processes killed.
+[09:51:41]   [Excel write failed: 'App' object has no attribute 'source_path', keeping batch in memory]
+[09:57:55] Browser ready (single shared page — no focus steal)
+[09:57:55] [1/97] https://kr.shein.com/Fall-Winter-2025-Summer-New-Pointed-Toe-Slim-High-Heel-Thig...
+[09:57:59]   [블랙] 26490 | 10 sizes | 7 imgs
+[09:58:00]   [MEM TOP10]
+[09:58:00]     15054KB | 120298x | <frozen importlib._bootstrap_external>:511
+[09:58:00]     13157KB |  1561x | E:\ai-test\scraper-portable\python\Lib\json\decoder.py:361
+[09:58:00]     2748KB | 28509x | E:\ai-test\scraper-portable\python\Lib\linecache.py:188
+[09:58:00]     1676KB | 15592x | <frozen importlib._bootstrap>:491
+[09:58:00]     1132KB |  1694x | E:\ai-test\scraper-portable\python\Lib\site-packages\bs4\element.py:1487
+[09:58:00]     447KB |  2356x | E:\ai-test\scraper-portable\python\Lib\site-packages\bs4\__init__.py:1035
+[09:58:00]     417KB |  7319x | E:\ai-test\scraper-portable\python\Lib\site-packages\bs4\builder\_lxml.py:494
+[09:58:00]     245KB |  4140x | E:\ai-test\scraper-portable\scraper\gui.py:773
+[09:58:00]     201KB |   259x | E:\ai-test\scraper-portable\python\Lib\re\_compiler.py:778
+[09:58:00]     198KB |   727x | <frozen abc>:106
+[09:58:00]   [wait 3.8s]
+[09:58:04] [2/97] https://kr.shein.com/2026-New-Ruched-Knee-High-Boots-With-Kitten-Heel-Pointed-To...
+[09:58:09]   [브라운] 28590 | 9 sizes | 8 imgs
+[09:58:09]   [wait 3.8s]
+[09:58:13] [3/97] https://kr.shein.com/Fall-Winter-2025-New-Kitten-Heel-Pleated-Thigh-High-Boots-P...
+[09:58:16]   [카키] 26290 | 9 sizes | 8 imgs
+[09:58:16]   [wait 3.5s]
+[09:58:20] [4/97] https://kr.shein.com/Women-s-Headscarves-Sandals-Casual-Summer-New-French-Low-He...
+[09:58:23]   [실버] 12390 | 10 sizes | 7 imgs
+[09:58:23]   [wait 3.5s]
+[09:58:27] [5/97] https://kr.shein.com/Fall-Winter-2025-Spring-Autumn-New-Square-Toe-Short-Boots-F...
+[09:58:31]   [블랙] 17044 | 9 sizes | 6 imgs
+[09:58:31]   [wait 4.3s]
+[09:58:35] [6/97] https://kr.shein.com/New-Round-Toe-Chunky-Heel-Ankle-Boots-British-Style-Buckle-...
+[09:58:38]   [블랙] 33290 | 8 sizes | 6 imgs
+[09:58:39]   [MEM TOP10]
+[09:58:39]     77361KB |  6491x | E:\ai-test\scraper-portable\python\Lib\json\decoder.py:361
+[09:58:39]     15054KB | 120298x | <frozen importlib._bootstrap_external>:511
+[09:58:39]     8478KB | 10712x | E:\ai-test\scraper-portable\python\Lib\site-packages\bs4\element.py:1487
+[09:58:39]     2907KB | 15418x | E:\ai-test\scraper-portable\python\Lib\site-packages\bs4\__init__.py:1035
+[09:58:39]     2748KB | 28509x | E:\ai-test\scraper-portable\python\Lib\linecache.py:188
+[09:58:39]     2589KB | 45835x | E:\ai-test\scraper-portable\python\Lib\site-packages\bs4\builder\_lxml.py:494
+[09:58:39]     1676KB | 15591x | <frozen importlib._bootstrap>:491
+[09:58:39]     841KB |  8290x | E:\ai-test\scraper-portable\python\Lib\site-packages\bs4\builder\_lxml.py:392
+[09:58:39]     634KB | 11410x | E:\ai-test\scraper-portable\python\Lib\site-packages\bs4\builder\__init__.py:423
+[09:58:39]     453KB |  8296x | E:\ai-test\scraper-portable\python\Lib\site-packages\bs4\element.py:1892
+[09:58:39]   [wait 4.7s]
+[09:58:44] [7/97] https://kr.shein.com/Fall-Winter-Women-s-Ankle-Boots-And-Booties-Match-With-Blac...
+[09:58:47]   [블랙] 18390 | 8 sizes | 8 imgs
+[09:58:47]   [wait 3.2s]
+[09:58:50] [8/97] https://kr.shein.com/2025-Autumn-Winter-New-Brown-High-Heel-Ankle-Boots-For-Wome...
+[09:58:54]   [브라운] 18990 | 9 sizes | 8 imgs
+[09:58:54]   [wait 4.0s]
+[09:58:58] [9/97] https://kr.shein.com/Autumn-Winter-New-Velvet-Pointed-Toe-Thick-High-Heel-Thigh-...
+[09:59:02]   [살구색] 25490 | 7 sizes | 8 imgs
+[09:59:02]   [wait 5.0s]
+[09:59:09] Stopped! All browser processes killed.
+[09:59:07]   [Excel write failed: 'App' object has no attribute 'source_path', keeping batch in memory]
