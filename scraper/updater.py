@@ -30,17 +30,39 @@ def _get_local_version():
 
 
 def _get_remote_version():
-    try:
-        req = urllib.request.Request(REPO_API, headers={
-            "User-Agent": "YaoWo-Scraper-Updater/1.0",
-            "Accept": "application/vnd.github.v3+json",
-        })
-        opener = urllib.request.build_opener()
-        with opener.open(req, timeout=10) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-            return data.get("sha", "")
-    except Exception:
-        return None
+    for use_proxy in (True, False):
+        try:
+            req = urllib.request.Request(REPO_API, headers={
+                "User-Agent": "YaoWo-Scraper-Updater/1.0",
+                "Accept": "application/vnd.github.v3+json",
+            })
+            opener = None
+            if use_proxy:
+                try:
+                    import winreg
+                    key = winreg.OpenKey(winreg.HKEY_CURRENT_USER,
+                        r"Software\Microsoft\Windows\CurrentVersion\Internet Settings")
+                    proxy_enable, _ = winreg.QueryValueEx(key, "ProxyEnable")
+                    if proxy_enable:
+                        proxy_server, _ = winreg.QueryValueEx(key, "ProxyServer")
+                        server = str(proxy_server).split(";")[0].strip()
+                        if "=" in server:
+                            server = server.split("=", 1)[1].strip()
+                        if server:
+                            proxy_url = f"http://{server}" if "://" not in server else server
+                            opener = urllib.request.build_opener(
+                                urllib.request.ProxyHandler({"http": proxy_url, "https": proxy_url}))
+                    winreg.CloseKey(key)
+                except Exception:
+                    pass
+            if opener is None:
+                opener = urllib.request.build_opener()
+            with opener.open(req, timeout=8) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                return data.get("sha", "")
+        except Exception:
+            continue
+    return None
 
 
 def _save_version(sha):
