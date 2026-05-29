@@ -35,7 +35,8 @@ def _get_remote_version():
             "User-Agent": "YaoWo-Scraper-Updater/1.0",
             "Accept": "application/vnd.github.v3+json",
         })
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        opener = urllib.request.build_opener()
+        with opener.open(req, timeout=10) as resp:
             data = json.loads(resp.read().decode("utf-8"))
             return data.get("sha", "")
     except Exception:
