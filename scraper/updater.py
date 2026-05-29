@@ -13,7 +13,7 @@ import shutil
 import subprocess
 import sys
 import tkinter as tk
-from tkinter import messagebox
+from tkinter import messagebox; import tempfile
 
 REPO_API = "https://api.github.com/repos/wenden1427/yaowo-scraper/commits/main"
 REPO_ZIP = "https://github.com/wenden1427/yaowo-scraper/archive/refs/heads/main.zip"
