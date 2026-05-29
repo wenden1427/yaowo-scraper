@@ -989,4 +989,10 @@ class App:
         except Exception as e:messagebox.showerror("Error",str(e))
     def run(self):self.rt.mainloop()
 
-if __name__=="__main__":App().run()
+if __name__=="__main__":
+    import updater
+    root=tk.Tk();root.withdraw()
+    if updater.check_and_update(root):
+        root.destroy();App().run()
+    else:
+        root.destroy()
