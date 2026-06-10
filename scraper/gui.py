@@ -474,7 +474,7 @@ class App:
     def __init__(self):
         self.rt=tk.Tk();self.rt.title("耀我科技 - 电商采集器");self.rt.geometry("920x720");self.rt.configure(bg=self.BG)
         # Manual browser mode (init early, before UI)
-        self._manual_pw=None;self._manual_ctx=None;self._manual_page=None
+        self._manual_proc=None;self._manual_debug_port=0
         self._manual_status=tk.StringVar(value="浏览器未启动")
         # Restore last window size
         try:
@@ -499,7 +499,8 @@ class App:
         # === Two-tab layout ===
         pw=tk.PanedWindow(self.rt,orient=tk.VERTICAL,bg=self.BG,bd=0,sashwidth=4,sashrelief="raised")
         pw.pack(fill=tk.BOTH,expand=True,padx=20,pady=(5,0))
-        nb=ttk.Notebook(pw);pw.add(nb,stretch="always")
+        nb=ttk.Notebook(pw);pw.add(nb,stretch="always",minsize=420)
+        self.rt.after(300,lambda:self.rt.tk.call(pw._w,'sash','place',0,0,530))
 
         # Tab 1: Scrape
         t1=tk.Frame(nb,bg=self.BG);nb.add(t1,text="  采集商品  ")
@@ -604,9 +605,9 @@ class App:
     def _oc(self):
         self._su();self._save_session()
         try:
-            if self._manual_page:self._manual_page.close()
-            if self._manual_ctx:self._manual_ctx.close()
-            if self._manual_pw:self._manual_pw.stop()
+            if self._manual_proc:
+                self._manual_proc.terminate()
+                self._manual_proc=None
         except:pass
         self.rt.destroy()
     def _ds(self):
@@ -949,63 +950,104 @@ class App:
         self._stop_fetch_btn.configure(state=tk.DISABLED)
     # === Manual browser mode ===
     def _open_manual_browser(self):
-        if self._manual_page:
+        if self._manual_proc:
             self._lm("Browser already running");return
-        t=self.fe.get("1.0",tk.END).strip()
-        urls=[l.strip() for l in t.split("\n") if l.strip()] if t else []
-        t_url=urls[0] if urls else None
         self._lm("Launching manual browser...")
-        threading.Thread(target=self._do_open_manual, args=(t_url,), daemon=True).start()
+        threading.Thread(target=self._do_open_manual, daemon=True).start()
 
-    def _do_open_manual(self, start_url):
+    def _do_open_manual(self):
         try:
-            from patchright.sync_api import sync_playwright
-            import os as _os
-            proxy_server=_os.getenv("PROXY_SERVER","")
-            pw=sync_playwright().start()
-            ctx_opts={
-                "user_data_dir":_CHROME_PROFILE,
-                "executable_path":_CLOAKBROWSER if _CLOAKBROWSER else None,
-                "headless":False,
-                "args":["--no-sandbox"],
-                "ignore_default_args":["--enable-automation","--enable-unsafe-swiftshader"],
-                "viewport":{"width":1920,"height":1080},
-            }
-            if proxy_server:
-                ctx_opts["proxy"]={"server":proxy_server}
-            ctx=pw.chromium.launch_persistent_context(**ctx_opts)
-            page=ctx.new_page()
-            if start_url:
-                page.goto(start_url, timeout=30000, wait_until="domcontentloaded")
-            time.sleep(1)  # let initial render finish
-            self._manual_pw=pw;self._manual_ctx=ctx;self._manual_page=page
+            chrome_exe=_CLOAKBROWSER if _CLOAKBROWSER else "chrome.exe"
+            # Pick a free port for CDP
+            import socket as _sock
+            port=19222
+            while True:
+                try:
+                    s=_sock.socket();s.bind(('127.0.0.1',port));s.close()
+                    break
+                except:
+                    port+=1
+            self._manual_debug_port=port
+            cmd=[chrome_exe,
+                 f"--remote-debugging-port={port}",
+                 f"--user-data-dir={_CHROME_PROFILE}",
+                 "--no-first-run","--no-default-browser-check"]
+            self._manual_proc=subprocess.Popen(cmd)
+            # Wait for CDP server to be ready
+            import urllib.request as _ur
+            for _ in range(30):
+                time.sleep(0.5)
+                try:
+                    _ur.urlopen(f"http://127.0.0.1:{port}/json/version",timeout=2)
+                    break
+                except:
+                    pass
             self._manual_status.set("浏览器已启动")
-            self._lm("Manual browser ready — navigate & filter, then click 「抓取本页链接」")
+            self._lm(f"Manual browser ready (CDP port {port}) — 自由浏览，需要抓取时点击「抓取本页链接」")
         except Exception as e:
             self._lm(f"Failed to open browser: {e}")
             self._manual_status.set("启动失败")
 
     def _fetch_current_page_links(self):
-        if not self._manual_page:
+        if not self._manual_proc:
             self._lm("No browser running. Click 「打开浏览器」 first.");return
         try:
-            url=self._manual_page.url
-            self._lm(f"Fetching: {url[:120]}...")
-            links=self._manual_page.evaluate(
-                "Array.from(document.querySelectorAll('a[href*=\"/item/\"]')).map(a => a.href).filter(h => /\\/item\\/\\d+\\.html/.test(h)).filter((h,idx,a) => a.indexOf(h) === idx)")
-            if not links:
-                links=self._manual_page.evaluate(
-                    "Array.from(document.querySelectorAll('a[href*=\"-p-\"]')).map(a => a.href).filter(h => /-p-\\d+\\.html/.test(h)).filter((h,idx,a) => a.indexOf(h) === idx)")
-            if not links:
-                self._lm("  No product links on this page");return
+            from patchright.sync_api import sync_playwright
+            import urllib.request as _ur, json as _json
+            plat=self.pl.get()
+            port=self._manual_debug_port
+            # Get WebSocket URL from CDP endpoint
+            ws_url=None
+            for attempt in range(5):
+                try:
+                    resp=_ur.urlopen(f"http://127.0.0.1:{port}/json/version",timeout=3)
+                    data=_json.loads(resp.read())
+                    ws_url=data.get("webSocketDebuggerUrl","")
+                    if ws_url:
+                        break
+                except Exception:
+                    pass
+                if attempt<4:
+                    time.sleep(0.5)
+            if not ws_url:
+                self._lm(f"  Cannot reach browser on port {port}. Try closing and reopening.")
+                return
+            # Connect via WebSocket URL directly
+            pw=sync_playwright().start()
+            browser=pw.chromium.connect_over_cdp(ws_url)
+            # Collect links from all pages
+            contexts=browser.contexts
+            if not contexts:
+                pw.stop();self._lm("  No browser pages found");return
+            all_links=[]
+            for ctx in contexts:
+                for page in ctx.pages:
+                    try:
+                        url=page.url
+                        if not url or url=="about:blank":continue
+                        self._lm(f"Checking page: {url[:120]}...")
+                        if plat=="1688":
+                            links=page.evaluate("Array.from(document.querySelectorAll('a[href*=\"/offer/\"]')).map(a => a.href).filter(h => /\\/offer\\/\\d+\\.html/.test(h)).filter((h,idx,a) => a.indexOf(h) === idx)")
+                        elif plat=="shein":
+                            links=page.evaluate("Array.from(document.querySelectorAll('a[href*=\"-p-\"]')).map(a => a.href).filter(h => /-p-\\d+\\.html/.test(h)).filter((h,idx,a) => a.indexOf(h) === idx)")
+                        else:  # aliexpress
+                            links=page.evaluate("Array.from(document.querySelectorAll('a[href*=\"/item/\"]')).map(a => a.href).filter(h => /\\/item\\/\\d+\\.html/.test(h)).filter((h,idx,a) => a.indexOf(h) === idx)")
+                        if links:
+                            for l in links:
+                                if l not in all_links:all_links.append(l)
+                    except Exception as e:
+                        self._lm(f"  Page check failed: {e}")
+            pw.stop()
+            if not all_links:
+                self._lm("  No product links on any page");return
             existing=set()
             try:
                 t=self.lt.get("1.0",tk.END).strip()
                 existing=set(l.strip() for l in t.split("\n") if l.strip())
             except:pass
-            new=[l for l in links if l.split('?')[0] not in existing]
+            new=[l for l in all_links if l.split('?')[0] not in existing]
             if not new:
-                self._lm(f"  All {len(links)} links already in list");return
+                self._lm(f"  All {len(all_links)} links already in list");return
             current=list(existing);current.extend(new)
             self.lt.delete("1.0",tk.END);self.lt.insert("1.0","\n".join(current))
             self._lm(f"  +{len(new)} links (total {len(current)})")
@@ -1013,12 +1055,13 @@ class App:
             self._lm(f"  Fetch failed: {e}")
 
     def _close_manual_browser(self):
-        if not self._manual_page:
+        if not self._manual_proc:
             self._lm("No browser running");return
         try:
-            self._manual_page.close();self._manual_ctx.close();self._manual_pw.stop()
+            self._manual_proc.terminate()
+            self._manual_proc=None
         except:pass
-        self._manual_pw=None;self._manual_ctx=None;self._manual_page=None
+        self._manual_debug_port=0
         self._manual_status.set("浏览器未启动")
         self._lm("Manual browser closed")
 
