@@ -257,47 +257,61 @@ class AliExpress(BaseScraper):
                 if (full && !seen.has(full)) { seen.add(full); imgs.push(full); }
             });
         }
-        // 6. Color names and size names — handle both old and new class naming
+        // 6. Color names and size names — element position + label text combined
         const colors = [];
         const sizes = [];
-        const COLOR_RE = /color|colour|색|컬러|색상/i;
-        const SIZE_RE = /size|tamanho|사이즈|크기|유형|신발.?사이즈/i;
+        const COLOR_RE = /color|colour|색|컬러|색상|컬러|couleur|farbe|cor|colore/i;
+        const SIZE_RE = /size|tamanho|사이즈|크기|talle|größe|taille|taglia|talla/i;
 
-        // ── Method A: New layout — sku-item--property / image / text ──
+        // ── Method A: New layout — sku-item--property header / image swatches / text buttons ──
+        // Step 1: Identify which property section is color vs size by label TEXT
+        let colorPropEl = null;
+        let sizePropEl = null;
         document.querySelectorAll('[class*="sku-item--property"]').forEach(prop => {
             const text = (prop.textContent || '').trim();
-            if (COLOR_RE.test(text)) {
-                // Extract color name after colon: "색상: 카키색" → "카키색"
+            if (!colorPropEl && COLOR_RE.test(text)) {
+                colorPropEl = prop;
+                // Also extract current color name if shown (e.g. "색상: 카키색" → "카키색")
                 const name = text.replace(/^[^:：]*[：:]\\s*/, '').replace(/\\s*\\([^)]*\\)/g, '').trim();
-                if (name && name.length < 40 && !colors.some(c => c.name === name)) {
+                if (name && name.length < 40 && !COLOR_RE.test(name) && !SIZE_RE.test(name)
+                    && !colors.some(c => c.name === name)) {
                     colors.push({name, img: ''});
                 }
-            } else if (SIZE_RE.test(text)) {
-                // Sizes are in separate sku-item--text elements, handled below
+            } else if (!sizePropEl && SIZE_RE.test(text)) {
+                sizePropEl = prop;
+                // Try to extract current size value from size property header (e.g. "크기: Large")
+                const val = text.replace(/^[^:：]*[：:]\\s*/, '').trim();
+                if (val && val.length < 30 && !COLOR_RE.test(val) && !SIZE_RE.test(val)
+                    && !sizes.includes(val)) {
+                    sizes.push(val);
+                }
             }
         });
-        // Color image swatches (new layout)
+        // Step 2: Color swatches — image elements (identified by having img children)
         document.querySelectorAll('[class*="sku-item--image"]').forEach(el => {
             const title = (el.getAttribute('title') || '').trim();
             const imgEl = el.querySelector('img');
             const src = imgEl ? (imgEl.src || imgEl.getAttribute('data-src') || '') : '';
-            if (title && title.length < 40 && !colors.some(c => c.name === title)) {
-                colors.push({name: title, img: normalize(src)});
-            } else if (title && title.length < 40) {
-                // Update img if we already have this color name
-                const existing = colors.find(c => c.name === title);
-                if (existing && !existing.img && src) existing.img = normalize(src);
+            if (title && title.length < 40 && !SIZE_RE.test(title)) {
+                if (!colors.some(c => c.name === title)) {
+                    colors.push({name: title, img: normalize(src)});
+                } else {
+                    const existing = colors.find(c => c.name === title);
+                    if (existing && !existing.img && src) existing.img = normalize(src);
+                }
             }
         });
-        // Size text elements (new layout)
+        // Step 3: Size buttons — text elements, BUT exclude color-related text
         document.querySelectorAll('[class*="sku-item--text"]').forEach(el => {
             const text = (el.textContent || '').trim();
-            if (text && text.length < 30 && !sizes.includes(text)) {
+            // Skip if looks like a color name or size label header
+            if (text && text.length < 30 && !sizes.includes(text)
+                && !COLOR_RE.test(text) && !SIZE_RE.test(text)) {
                 sizes.push(text);
             }
         });
 
-        // ── Method B: Old layout — sku-property with li/sku-item children ──
+        // ── Method B: Old layout — sku-property groups with title + li/swatch children ──
         if (colors.length === 0 && sizes.length === 0) {
             document.querySelectorAll('[class*="sku-property"]').forEach(group => {
                 const titleEl = group.querySelector('[class*="sku-property-title"], [class*="sku-title"]');
@@ -317,10 +331,20 @@ class AliExpress(BaseScraper):
                 } else if (isSize) {
                     items.forEach(i => sizes.push(i.name));
                 } else {
-                    if (items.some(i => i.img)) {
+                    // Fallback: use combined signal — title text weak match + item characteristics
+                    const weakColor = /색|colo|컬러/i.test(propName);
+                    const weakSize = /크기|size|tama/i.test(propName);
+                    if (weakColor && !weakSize) {
                         items.forEach(i => colors.push(i));
-                    } else {
+                    } else if (weakSize && !weakColor) {
                         items.forEach(i => sizes.push(i.name));
+                    } else {
+                        // Last resort: image presence signal (color swatches have images)
+                        if (items.some(i => i.img)) {
+                            items.forEach(i => colors.push(i));
+                        } else {
+                            items.forEach(i => sizes.push(i.name));
+                        }
                     }
                 }
             });
@@ -654,24 +678,41 @@ class AliExpress(BaseScraper):
             if not items or len(items) <= 1:
                 return []
 
-            # Helper: read current color name from property text
+            # Helper: read current color name from color property element (by TEXT, not position)
             def _read_color_name():
                 return self.page.evaluate("""() => {
-                    const prop = document.querySelector('[class*="sku-item--property"]');
-                    if (!prop) return '';
-                    const txt = (prop.textContent || '').trim();
-                    // "색상: 카키색" → "카키색"
+                    const COLOR_RE = /color|colour|색|컬러|색상|컬러|couleur|farbe|cor|colore/i;
+                    const props = document.querySelectorAll('[class*="sku-item--property"]');
+                    for (const prop of props) {
+                        const txt = (prop.textContent || '').trim();
+                        if (COLOR_RE.test(txt)) {
+                            // "색상: 카키색" → "카키색"
+                            const m = txt.match(/[:：]\\s*(.+)/);
+                            const name = m ? m[1].trim() : '';
+                            if (name && name.length < 40) return name;
+                        }
+                    }
+                    // Fallback: first property element (might not be color)
+                    const first = document.querySelector('[class*="sku-item--property"]');
+                    if (!first) return '';
+                    const txt = (first.textContent || '').trim();
                     const m = txt.match(/[:：]\\s*(.+)/);
                     return m ? m[1].trim() : txt;
                 }""")
 
-            # Helper: read current sizes
+            # Helper: read current sizes — only text elements near size section
             def _read_sizes():
                 return self.page.evaluate("""() => {
+                    const COLOR_RE = /color|colour|색|컬러|색상/i;
+                    const SIZE_RE = /size|tamanho|사이즈|크기/i;
                     const sizes = [];
                     document.querySelectorAll('[class*="sku-item--text"]').forEach(el => {
                         const txt = (el.textContent || '').trim();
-                        if (txt && txt.length < 30) sizes.push(txt);
+                        // Skip color names, size headers, and long text
+                        if (txt && txt.length < 30 && !sizes.includes(txt)
+                            && !COLOR_RE.test(txt) && !SIZE_RE.test(txt)) {
+                            sizes.push(txt);
+                        }
                     });
                     return sizes;
                 }""")
@@ -697,7 +738,14 @@ class AliExpress(BaseScraper):
                     }}""")
                     if not clicked:
                         continue
-                    time.sleep(0.35)
+                    # Wait longer for page to update after click
+                    time.sleep(0.6)
+                    # Wait for color name to actually update (max 2s)
+                    for _ in range(8):
+                        name = _read_color_name()
+                        if name:
+                            break
+                        time.sleep(0.25)
 
                     name = _read_color_name()
                     sizes = _read_sizes()
