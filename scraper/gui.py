@@ -35,6 +35,29 @@ try:
 except:
     pass
 
+def _get_proxy():
+    """Auto-detect proxy: 1) PROXY_SERVER env, 2) Windows system proxy"""
+    env = os.getenv("PROXY_SERVER", "").strip()
+    if env:
+        return env if "://" in env else "http://" + env
+    try:
+        import winreg
+        key = winreg.OpenKey(winreg.HKEY_CURRENT_USER,
+            r"Software\Microsoft\Windows\CurrentVersion\Internet Settings")
+        try:
+            enabled, _ = winreg.QueryValueEx(key, "ProxyEnable")
+            if enabled:
+                server, _ = winreg.QueryValueEx(key, "ProxyServer")
+                s = str(server).split(";")[0].strip()
+                if "=" in s: s = s.split("=", 1)[1].strip()
+                if s:
+                    winreg.CloseKey(key)
+                    return "http://" + s if "://" not in s else s
+        except: pass
+        winreg.CloseKey(key)
+    except: pass
+    return None
+
 TEMPLATE_HEADERS=["ParentSKU","SKU","产品标题","产品描述","产品标签","品牌","UPC","LandingPageUrl","MSRP",
     "颜色","尺寸值","来源url","价格","运费","数量","最小送达时间","最大送达时间",
     "主图","附图1","附图2","附图3","附图4","附图5","附图6","附图7","附图8","附图9","附图10",
@@ -717,7 +740,7 @@ class App:
             if plat=="aliexpress":
                 from patchright.sync_api import sync_playwright
                 import os as _os
-                proxy_server = _os.getenv("PROXY_SERVER","")
+                proxy_server = _get_proxy() or ""
                 self._lm(f"Starting browser for {len(urls)} AliExpress URL(s)...")
                 pw=sync_playwright().start()
                 ctx_opts = {
