@@ -450,6 +450,9 @@ class App:
 
     def __init__(self):
         self.rt=tk.Tk();self.rt.title("耀我科技 - 电商采集器");self.rt.geometry("920x720");self.rt.configure(bg=self.BG)
+        # Manual browser mode (init early, before UI)
+        self._manual_pw=None;self._manual_ctx=None;self._manual_page=None
+        self._manual_status=tk.StringVar(value="浏览器未启动")
         # Restore last window size
         try:
             if os.path.exists(self.SESSION_FILE):
@@ -535,6 +538,17 @@ class App:
         tk.Button(t2,text="全选复制到剪贴板",font=("Arial",9),bg="#FF6F00",fg=self.W,padx=10,pady=3,relief="flat",
                   cursor="hand2",command=lambda:self._cp()).pack()
         tk.Label(t2,text="提示: 1688 HTTP直抓; Shein 打开Chrome自动滚动加载",font=("Arial",8),bg=self.BG,fg="#78909C").pack(anchor=tk.W,padx=10,pady=3)
+        # --- Manual browser mode ---
+        mf=tk.Frame(t2,bg=self.BG);mf.pack(fill=tk.X,padx=10,pady=(10,2))
+        tk.Label(mf,text="手动模式:",font=("Arial",10,"bold"),bg=self.BG,fg=self.T).pack(side=tk.LEFT,padx=(0,8))
+        tk.Button(mf,text="打开浏览器",font=("Arial",9),bg="#2E7D32",fg=self.W,padx=8,pady=2,relief="flat",cursor="hand2",
+                  command=self._open_manual_browser).pack(side=tk.LEFT,padx=2)
+        tk.Button(mf,text="抓取本页链接",font=("Arial",9),bg="#1565C0",fg=self.W,padx=8,pady=2,relief="flat",cursor="hand2",
+                  command=self._fetch_current_page_links).pack(side=tk.LEFT,padx=2)
+        tk.Button(mf,text="关闭浏览器",font=("Arial",9),bg="#C62828",fg=self.W,padx=8,pady=2,relief="flat",cursor="hand2",
+                  command=self._close_manual_browser).pack(side=tk.LEFT,padx=2)
+        tk.Label(mf,textvariable=self._manual_status,font=("Arial",9),bg=self.BG,fg="#FF8F00").pack(side=tk.LEFT,padx=(8,0))
+        tk.Label(t2,text="手动翻页→点「抓取本页链接」→切换页面→再点抓取，浏览器不会关",font=("Arial",8),bg=self.BG,fg="#78909C").pack(anchor=tk.W,padx=10)
 
         # === Shared Log ===
         lf=tk.Frame(pw,bg=self.BG)
@@ -564,7 +578,14 @@ class App:
             n=len([l for l in t.split("\n")if l.strip()])
             self.ut_label.config(text=f"{n} URLs")
         except:pass
-    def _oc(self):self._su();self._save_session();self.rt.destroy()
+    def _oc(self):
+        self._su();self._save_session()
+        try:
+            if self._manual_page:self._manual_page.close()
+            if self._manual_ctx:self._manual_ctx.close()
+            if self._manual_pw:self._manual_pw.stop()
+        except:pass
+        self.rt.destroy()
     def _ds(self):
         try:
             s=self.ut.tag_ranges(tk.SEL)
@@ -903,6 +924,81 @@ class App:
     def _fetch_done(self):
         self._fetch_btn.configure(state=tk.NORMAL)
         self._stop_fetch_btn.configure(state=tk.DISABLED)
+    # === Manual browser mode ===
+    def _open_manual_browser(self):
+        if self._manual_page:
+            self._lm("Browser already running");return
+        t=self.fe.get("1.0",tk.END).strip()
+        urls=[l.strip() for l in t.split("\n") if l.strip()] if t else []
+        t_url=urls[0] if urls else None
+        self._lm("Launching manual browser...")
+        threading.Thread(target=self._do_open_manual, args=(t_url,), daemon=True).start()
+
+    def _do_open_manual(self, start_url):
+        try:
+            from patchright.sync_api import sync_playwright
+            import os as _os
+            proxy_server=_os.getenv("PROXY_SERVER","")
+            pw=sync_playwright().start()
+            ctx_opts={
+                "user_data_dir":_CHROME_PROFILE,
+                "executable_path":_CLOAKBROWSER if _CLOAKBROWSER else None,
+                "headless":False,
+                "args":["--no-sandbox"],
+                "ignore_default_args":["--enable-automation","--enable-unsafe-swiftshader"],
+                "viewport":{"width":1920,"height":1080},
+            }
+            if proxy_server:
+                ctx_opts["proxy"]={"server":proxy_server}
+            ctx=pw.chromium.launch_persistent_context(**ctx_opts)
+            page=ctx.new_page()
+            if start_url:
+                page.goto(start_url, timeout=30000, wait_until="domcontentloaded")
+            time.sleep(1)  # let initial render finish
+            self._manual_pw=pw;self._manual_ctx=ctx;self._manual_page=page
+            self._manual_status.set("浏览器已启动")
+            self._lm("Manual browser ready — navigate & filter, then click 「抓取本页链接」")
+        except Exception as e:
+            self._lm(f"Failed to open browser: {e}")
+            self._manual_status.set("启动失败")
+
+    def _fetch_current_page_links(self):
+        if not self._manual_page:
+            self._lm("No browser running. Click 「打开浏览器」 first.");return
+        try:
+            url=self._manual_page.url
+            self._lm(f"Fetching: {url[:120]}...")
+            links=self._manual_page.evaluate(
+                "Array.from(document.querySelectorAll('a[href*=\"/item/\"]')).map(a => a.href).filter(h => /\\/item\\/\\d+\\.html/.test(h)).filter((h,idx,a) => a.indexOf(h) === idx)")
+            if not links:
+                links=self._manual_page.evaluate(
+                    "Array.from(document.querySelectorAll('a[href*=\"-p-\"]')).map(a => a.href).filter(h => /-p-\\d+\\.html/.test(h)).filter((h,idx,a) => a.indexOf(h) === idx)")
+            if not links:
+                self._lm("  No product links on this page");return
+            existing=set()
+            try:
+                t=self.lt.get("1.0",tk.END).strip()
+                existing=set(l.strip() for l in t.split("\n") if l.strip())
+            except:pass
+            new=[l for l in links if l.split('?')[0] not in existing]
+            if not new:
+                self._lm(f"  All {len(links)} links already in list");return
+            current=list(existing);current.extend(new)
+            self.lt.delete("1.0",tk.END);self.lt.insert("1.0","\n".join(current))
+            self._lm(f"  +{len(new)} links (total {len(current)})")
+        except Exception as e:
+            self._lm(f"  Fetch failed: {e}")
+
+    def _close_manual_browser(self):
+        if not self._manual_page:
+            self._lm("No browser running");return
+        try:
+            self._manual_page.close();self._manual_ctx.close();self._manual_pw.stop()
+        except:pass
+        self._manual_pw=None;self._manual_ctx=None;self._manual_page=None
+        self._manual_status.set("浏览器未启动")
+        self._lm("Manual browser closed")
+
     def _fa(self):
         links=self.lt.get("1.0",tk.END).strip()
         if not links:return
