@@ -7,8 +7,8 @@ asks user whether to update before launching the main GUI.
 import os, json, urllib.request, urllib.error, zipfile, shutil, subprocess, sys, tkinter as tk
 from tkinter import messagebox; import tempfile
 
-REPO_API = "https://api.github.com/repos/wenden1427/yaowo-scraper/commits/main"
-REPO_ZIP = "https://github.com/wenden1427/yaowo-scraper/archive/refs/heads/main.zip"
+REPO_API = "https://api.github.com/repos/wenden1427/yaowo-scraper/commits/master"
+REPO_ZIP = "https://github.com/wenden1427/yaowo-scraper/archive/refs/heads/master.zip"
 SCRAPER_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.normpath(os.path.join(SCRAPER_DIR, ".."))
 VERSION_FILE = os.path.join(SCRAPER_DIR, "version.txt")
