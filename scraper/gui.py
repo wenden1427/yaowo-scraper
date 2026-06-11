@@ -401,14 +401,10 @@ def extract_aliexpress(url, shared_page=None, pause_event=None):
         if not d:return[]
 
         title=d.get("name","")
-        # Use OLD price (original), not current sale price
-        old_int=d.get('old_price_integer','')
-        old_dec=d.get('old_price_decimal','00')
-        price=f"{old_int}.{old_dec}"if old_int and old_int!='N/A'else""
-        # Current/sale price as secondary
+        # Use CURRENT sale price (优惠后价格), not old/original price
         cur_int=d.get('current_price_integer','')
         cur_dec=d.get('current_price_decimal','00')
-        cur_price=f"{cur_int}.{cur_dec}"if cur_int else""
+        price=f"{cur_int}.{cur_dec}"if cur_int else""
         # Use all gallery images (not just main_image)
         images=d.get("images",[])or[]
         variant_images=d.get("variant_images",[])or[]
@@ -428,14 +424,14 @@ def extract_aliexpress(url, shared_page=None, pause_event=None):
         if variants:
             result=[]
             for v in variants:
-                v_old=v.get("old_price")or price
+                v_price=v.get("price")or price
                 vsizes=v.get("sizes")or sizes
                 # Per-variant color image
                 v_color_img = v.get("color_image","")
                 v_color_dict = {v.get("color",""): v_color_img} if v_color_img else color_images
                 result.append({
                     "parent_sku":ps,"name":title,"url":url,"sku":f"{ps}_{v.get('color','')}",
-                    "price":v_old,"cur_price":cur_price,"discount":d.get("discount_percentage",""),
+                    "price":v_price,"discount":d.get("discount_percentage",""),
                     "description":d.get("description",""),"overview":d.get("overview","") or "",
                     "color":v.get("color",""),
                     "sizes":vsizes,"images":images[:20],
@@ -452,7 +448,7 @@ def extract_aliexpress(url, shared_page=None, pause_event=None):
 
         # No variants: single entry
         return[{
-            "parent_sku":ps,"name":title,"url":url,"sku":ps,"price":price,"cur_price":cur_price,
+            "parent_sku":ps,"name":title,"url":url,"sku":ps,"price":price,
             "discount":d.get("discount_percentage",""),
             "description":d.get("description",""),"overview":d.get("overview","") or "","color":"",
             "sizes":sizes,"images":images[:20],
@@ -516,7 +512,6 @@ def _split_aliexpress_by_price(products, margin=0.05):
             base = p.get("parent_sku", "")
             p["parent_sku"] = f"{base}{suffix}" if suffix else base
             p["price"] = median_price
-            p["cur_price"] = median_price
             p["sku"] = f'{p["parent_sku"]}_{p.get("color","")}' if p.get("color") else p["parent_sku"]
             result.append(p)
     return result

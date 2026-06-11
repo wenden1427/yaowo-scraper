@@ -717,6 +717,25 @@ class AliExpress(BaseScraper):
                     return sizes;
                 }""")
 
+            # Helper: read current sale price (优惠后价格) after swatch click
+            def _read_price():
+                return self.page.evaluate("""() => {
+                    // Try current/discount price selectors first
+                    const sels = [
+                        '[class*="price--current"]',
+                        '[class*="price-current"]',
+                        '[class*="currentPrice"]',
+                        '[class*="product-price-current"]',
+                        '[class*="product-price"]:not([class*="original"])',
+                    ];
+                    for (const sel of sels) {
+                        const el = document.querySelector(sel);
+                        const txt = el ? (el.textContent || '').trim() : '';
+                        if (txt && /\\d/.test(txt)) return txt;
+                    }
+                    return '';
+                }""")
+
             variants = []
             for i, item in enumerate(items):
                 try:
@@ -749,6 +768,7 @@ class AliExpress(BaseScraper):
 
                     name = _read_color_name()
                     sizes = _read_sizes()
+                    click_price = _read_price()
 
                     if name:
                         variants.append({
@@ -757,8 +777,7 @@ class AliExpress(BaseScraper):
                             "sizes": sizes,
                             "sold_out": item.get("isSoldOut", False),
                             "main_image": "",
-                            "price": "",
-                            "old_price": "",
+                            "price": click_price or "",
                         })
                 except Exception:
                     continue
@@ -964,18 +983,32 @@ class AliExpress(BaseScraper):
         if result:
             clicked_variants = self._extract_variants_click()
             if clicked_variants:
-                # Use clicked data (richer: per-color sizes, accurate names)
+                # Use clicked data (richer: per-color sizes + per-color price)
+                # Parse per-variant clicked price; fall back to product-level current price
+                def _parse_clicked_price(raw):
+                    if not raw:
+                        return None
+                    import re
+                    m = re.search(r'([\\d,\\.]+)', str(raw).replace(',', '.').replace(' ', ''))
+                    if m:
+                        try:
+                            return f"{float(m.group(1)):.2f}"
+                        except:
+                            pass
+                    return None
+                proj_cur = f"{result.get('current_price_integer','')}.{result.get('current_price_decimal','00')}"
+                proj_cur_f = proj_cur if result.get('current_price_integer') and result['current_price_integer'] != '0' else ''
                 variants = []
                 for cv in clicked_variants:
+                    cv_price_raw = cv.get("price", "")
+                    cv_price = _parse_clicked_price(cv_price_raw) or proj_cur_f or ""
                     variants.append({
                         "color": cv.get("color", ""),
                         "color_image": cv.get("color_image", ""),
                         "sizes": cv.get("sizes", result.get("sizes", [])),
                         "sold_out": cv.get("sold_out", False),
                         "main_image": result.get('images', [None])[0] if result.get('images') else '',
-                        "price": f"{result.get('current_price_integer','')}.{result.get('current_price_decimal','00')}",
-                        "old_price": f"{result.get('old_price_integer','')}.{result.get('old_price_decimal','00')}"
-                            if result.get('old_price_integer') and result['old_price_integer'] != 'N/A' else '',
+                        "price": cv_price,
                     })
                 result['variants'] = variants
                 # Split by position: last N images = variant images (one per color)
@@ -1001,9 +1034,11 @@ class AliExpress(BaseScraper):
                     f"{len(all_sizes)} sizes total{Style.RESET_ALL}"
                 )
             else:
-                # Fallback: build from JS-extracted colors
+                # Fallback: build from JS-extracted colors (single product-level price)
                 colors = result.get('colors', []) or []
                 variant_imgs = result.get('variant_images', []) or []
+                proj_cur = f"{result.get('current_price_integer','')}.{result.get('current_price_decimal','00')}"
+                proj_cur_f = proj_cur if result.get('current_price_integer') and result['current_price_integer'] != '0' else ''
                 if colors:
                     variants = []
                     for i, cn in enumerate(colors):
@@ -1015,9 +1050,7 @@ class AliExpress(BaseScraper):
                             "color_image": ci,
                             "sizes": result.get("sizes", []),
                             "main_image": result.get('images', [None])[0] if result.get('images') else '',
-                            "price": f"{result.get('current_price_integer','')}.{result.get('current_price_decimal','00')}",
-                            "old_price": f"{result.get('old_price_integer','')}.{result.get('old_price_decimal','00')}"
-                                if result.get('old_price_integer') and result['old_price_integer'] != 'N/A' else '',
+                            "price": proj_cur_f,
                         })
                     result['variants'] = variants
 
