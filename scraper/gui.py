@@ -465,6 +465,63 @@ def extract_aliexpress(url, shared_page=None, pause_event=None):
     except Exception as e:
         print(f"[ALIEXPRESS ERROR] {e}");import traceback;traceback.print_exc();return[]
 
+def _split_aliexpress_by_price(products, margin=0.05):
+    """Split AliExpress variants into price-proximity groups.
+    Each group = variants within ±margin% of the group's median.
+    Outliers form new groups recursively. All variants in a group get the
+    group's median price.  Parent SKU gets _1, _2, etc. suffix per group.
+    """
+    if len(products) <= 1:
+        return products
+
+    def _num(p):
+        try:
+            return float(str(p.get("price","0")).replace(",",""))
+        except:
+            return 0.0
+
+    # Sort by price
+    items = sorted(products, key=_num)
+
+    # Recursive grouping
+    groups = []
+    pool = list(items)
+    while pool:
+        pool_prices = [_num(p) for p in pool]
+        median = sorted(pool_prices)[len(pool_prices)//2]
+        lo, hi = median * (1 - margin), median * (1 + margin)
+
+        group, rest = [], []
+        for p in pool:
+            pr = _num(p)
+            if lo <= pr <= hi:
+                group.append(p)
+            else:
+                rest.append(p)
+
+        if not group:  # safety: everything in one group
+            groups.append(pool)
+            break
+        groups.append(group)
+        pool = rest
+
+    # Assign new parent_sku suffix + median price per group
+    result = []
+    for gi, group in enumerate(groups):
+        suffix = f"_{gi + 1}" if len(groups) > 1 else ""
+        gp = sorted([_num(p) for p in group])
+        median_price = str(int(gp[len(gp)//2])) if gp else ""
+        for p in group:
+            p = dict(p)
+            base = p.get("parent_sku", "")
+            p["parent_sku"] = f"{base}{suffix}" if suffix else base
+            p["price"] = median_price
+            p["cur_price"] = median_price
+            p["sku"] = f'{p["parent_sku"]}_{p.get("color","")}' if p.get("color") else p["parent_sku"]
+            result.append(p)
+    return result
+
+
 class App:
     BG="#E3F2FD";P="#1565C0";A="#0D47A1";G="#00897B";O="#EF6C00";T="#263238";W="#FFFFFF"
     UF=os.path.join(os.path.dirname(os.path.abspath(__file__)),"saved_urls.txt")
@@ -1250,6 +1307,8 @@ class App:
                                     self._lm(f"  [SKIP URL] {ae_sku_id} already collected (SKU exists)")
                                     continue
                         prods=extract_1688(url,shared_page,self._pause_event)if plat=="1688"else extract_aliexpress(url,shared_page,self._pause_event)
+                        if plat=="aliexpress" and prods:
+                            prods=_split_aliexpress_by_price(prods)
                     if prods:
                         for p in prods:
                             sku=p.get("sku","")
