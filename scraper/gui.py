@@ -1239,14 +1239,15 @@ class App:
                             self._lm(f"  >>> SKU DUPLICATE, skip <<<")
                             continue
                     else:
-                        # AliExpress: check URL-level SKU dedup before scraping
+                        # AliExpress: check SKU dedup BEFORE scraping (like Shein)
                         if plat=="aliexpress":
                             ae_sku=re.search(r'/item/(\d+)\.html',url)
                             if not ae_sku:ae_sku=re.search(r'(\d{10,})',url)
                             if ae_sku:
                                 ae_sku_id=ae_sku.group(1)
-                                if ae_sku_id in scraped_skus:
-                                    self._lm(f"  [SKIP URL] {ae_sku_id} already collected")
+                                # Check if ANY variant of this item was already collected
+                                if any(s.startswith(ae_sku_id) for s in scraped_skus):
+                                    self._lm(f"  [SKIP URL] {ae_sku_id} already collected (SKU exists)")
                                     continue
                         prods=extract_1688(url,shared_page,self._pause_event)if plat=="1688"else extract_aliexpress(url,shared_page,self._pause_event)
                     if prods:
@@ -1259,6 +1260,10 @@ class App:
                                 scraped_skus.add(sku)
                                 with open(self.SKU_FILE,'a',encoding='utf-8')as f:
                                     f.write(sku+'\n')
+                            # Also register bare item ID so future URL-level checks work
+                            ae_id_match=re.search(r'/item/(\d+)\.html',p.get("url",""))
+                            if ae_id_match:
+                                scraped_skus.add(ae_id_match.group(1))
                             self.products.append(p)
                             sz=", ".join(p.get("sizes",[])[:8])
                             self.tv.insert("",tk.END,values=(
