@@ -1019,6 +1019,43 @@ class AliExpress(BaseScraper):
             verbose_output(f"  parse sku price variants: {e}")
             return []
 
+    def _image_key(self, url: str) -> str:
+        """Stable image key that ignores AliExpress resize suffixes."""
+        url = self._normalize_desc_image_url(url)
+        parsed = urlparse(url)
+        filename = os.path.basename(parsed.path).lower()
+        match = re.match(r"(.+?\.(?:jpg|jpeg|png|webp))", filename, re.I)
+        return match.group(1) if match else url.lower().split("?", 1)[0]
+
+    def _remove_variant_images_from_gallery(self, result: dict) -> None:
+        """Remove SKU/color swatch images from the main gallery image list."""
+        variants = result.get("variants") or []
+        variant_urls = []
+        for variant in variants:
+            if isinstance(variant, dict) and variant.get("color_image"):
+                variant_urls.append(variant["color_image"])
+        color_images = result.get("color_images") or {}
+        if isinstance(color_images, dict):
+            variant_urls.extend(color_images.values())
+        variant_urls.extend(result.get("variant_images") or [])
+
+        variant_keys = {self._image_key(url) for url in variant_urls if url}
+        if not variant_keys:
+            return
+
+        clean_images = []
+        removed = []
+        for url in result.get("images", []) or []:
+            if self._image_key(url) in variant_keys:
+                removed.append(url)
+            else:
+                clean_images.append(url)
+
+        if removed:
+            result["images"] = clean_images
+            existing = result.get("variant_images") or []
+            result["variant_images"] = self._dedupe_urls(existing + variant_urls)
+
     def _normalize_desc_image_url(self, url: str) -> str:
         """Normalize a seller-description image URL."""
         url = (url or "").strip().strip("\"'")
@@ -1303,6 +1340,9 @@ class AliExpress(BaseScraper):
                             "price": proj_cur_f,
                         })
                     result['variants'] = variants
+
+        if result:
+            self._remove_variant_images_from_gallery(result)
 
         # Fetch seller description images from API
         if result:

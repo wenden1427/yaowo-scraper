@@ -62,6 +62,38 @@ class AliExpressApiVariantsTest(unittest.TestCase):
             ],
         )
 
+    def test_remove_variant_images_from_gallery_keeps_main_images_only(self):
+        scraper = AliExpress("https://ko.aliexpress.com/item/1005011615735274.html", skip_media=True)
+        result = {
+            "images": [
+                "https://ae-pic-a1.aliexpress-media.com/kf/main-1.jpg",
+                "https://ae-pic-a1.aliexpress-media.com/kf/variant-a.jpg",
+                "https://ae-pic-a1.aliexpress-media.com/kf/main-2.jpg",
+                "https://ae-pic-a1.aliexpress-media.com/kf/variant-b.jpg_120x120.jpg_.webp",
+            ],
+            "variants": [
+                {"color": "A", "color_image": "https://ae-pic-a1.aliexpress-media.com/kf/variant-a.jpg"},
+                {"color": "B", "color_image": "https://ae-pic-a1.aliexpress-media.com/kf/variant-b.jpg"},
+            ],
+        }
+
+        scraper._remove_variant_images_from_gallery(result)
+
+        self.assertEqual(
+            result["images"],
+            [
+                "https://ae-pic-a1.aliexpress-media.com/kf/main-1.jpg",
+                "https://ae-pic-a1.aliexpress-media.com/kf/main-2.jpg",
+            ],
+        )
+        self.assertEqual(
+            result["variant_images"],
+            [
+                "https://ae-pic-a1.aliexpress-media.com/kf/variant-a.jpg",
+                "https://ae-pic-a1.aliexpress-media.com/kf/variant-b.jpg",
+            ],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
