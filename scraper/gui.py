@@ -462,56 +462,92 @@ def extract_aliexpress(url, shared_page=None, pause_event=None):
         print(f"[ALIEXPRESS ERROR] {e}");import traceback;traceback.print_exc();return[]
 
 def _split_aliexpress_by_price(products, margin=0.05):
-    """Split AliExpress variants into price-proximity groups.
-    Each group = variants within ±margin% of the group's median.
-    Outliers form new groups recursively. All variants in a group get the
-    group's median price.  Parent SKU gets _1, _2, etc. suffix per group.
-    """
+    """Split AliExpress child SKUs by price, starting from the lowest price."""
     if len(products) <= 1:
         return products
 
+    from decimal import Decimal, InvalidOperation
+
+    margin_dec = Decimal(str(margin))
+
     def _num(p):
         try:
-            return float(str(p.get("price","0")).replace(",",""))
-        except:
-            return 0.0
+            raw = str(p.get("price", "")).strip()
+            cleaned = re.sub(r"[^\d,\.]", "", raw)
+            if not cleaned:
+                return None
+            if "," in cleaned and "." in cleaned:
+                if cleaned.rfind(",") > cleaned.rfind("."):
+                    cleaned = cleaned.replace(".", "").replace(",", ".")
+                else:
+                    cleaned = cleaned.replace(",", "")
+            elif "," in cleaned:
+                parts = cleaned.split(",")
+                if len(parts) == 2 and 1 <= len(parts[1]) <= 2:
+                    cleaned = parts[0].replace(".", "") + "." + parts[1]
+                else:
+                    cleaned = cleaned.replace(",", "")
+            return Decimal(cleaned)
+        except (InvalidOperation, ValueError):
+            return None
 
-    # Sort by price
-    items = sorted(products, key=_num)
+    def _median(values):
+        vals = sorted(values)
+        mid = len(vals) // 2
+        if len(vals) % 2:
+            return vals[mid]
+        return (vals[mid - 1] + vals[mid]) / Decimal("2")
 
-    # Recursive grouping
+    def _fits_group(values):
+        med = _median(values)
+        lo = med * (Decimal("1") - margin_dec)
+        hi = med * (Decimal("1") + margin_dec)
+        return all(lo <= val <= hi for val in values)
+
+    def _format_price(value):
+        cents = value.quantize(Decimal("0.01"))
+        if cents == cents.to_integral_value():
+            return str(int(cents))
+        return f"{cents:.2f}"
+
+    priced = []
+    unpriced = []
+    for p in products:
+        price_num = _num(p)
+        if price_num is None:
+            unpriced.append(p)
+        else:
+            priced.append((price_num, p))
+
+    if not priced:
+        return products
+
+    remaining = sorted(priced, key=lambda item: item[0])
     groups = []
-    pool = list(items)
-    while pool:
-        pool_prices = [_num(p) for p in pool]
-        median = sorted(pool_prices)[len(pool_prices)//2]
-        lo, hi = median * (1 - margin), median * (1 + margin)
-
-        group, rest = [], []
-        for p in pool:
-            pr = _num(p)
-            if lo <= pr <= hi:
-                group.append(p)
-            else:
-                rest.append(p)
-
-        if not group:  # safety: everything in one group
-            groups.append(pool)
-            break
+    while remaining:
+        group = [remaining.pop(0)]
+        while remaining:
+            candidate = remaining[0]
+            test_prices = [price for price, _ in group] + [candidate[0]]
+            if not _fits_group(test_prices):
+                break
+            group.append(remaining.pop(0))
         groups.append(group)
-        pool = rest
 
-    # Assign new parent_sku suffix + median price per group
+    if unpriced:
+        groups.append([(None, p) for p in unpriced])
+
     result = []
     for gi, group in enumerate(groups):
         suffix = f"_{gi + 1}" if len(groups) > 1 else ""
-        gp = sorted([_num(p) for p in group])
-        median_price = str(int(gp[len(gp)//2])) if gp else ""
-        for p in group:
+        gp = [price for price, _ in group if price is not None]
+        median_price = _format_price(_median(gp)) if gp else ""
+        for _, p in group:
             p = dict(p)
             base = p.get("parent_sku", "")
             p["parent_sku"] = f"{base}{suffix}" if suffix else base
-            p["price"] = median_price
+            if median_price:
+                p["price"] = median_price
             p["sku"] = f'{p["parent_sku"]}_{p.get("color","")}' if p.get("color") else p["parent_sku"]
             result.append(p)
     return result

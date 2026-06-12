@@ -870,66 +870,312 @@ class AliExpress(BaseScraper):
             verbose_output(f"  parse variants: {e}")
             return []
 
+    def _format_api_variant_price(self, raw) -> str:
+        """Return a clean numeric price string from AliExpress API price fields."""
+        if not raw:
+            return ""
+        if isinstance(raw, dict):
+            raw = (
+                raw.get("value")
+                or raw.get("formatedAmount")
+                or raw.get("formattedAmount")
+                or raw.get("amount")
+                or ""
+            )
+        text = str(raw)
+        if "|" in text:
+            for part in text.split("|"):
+                cleaned = re.sub(r"[^\d.]", "", part)
+                if cleaned:
+                    return cleaned
+        int_part, dec_part = self._parse_price_from_api(text)
+        if not int_part or int_part == "0":
+            return ""
+        return int_part if not dec_part or dec_part == "00" else f"{int_part}.{dec_part}"
+
+    def _parse_sku_variants_from_api_body(self, body: dict) -> List[dict]:
+        """Build one variant entry per AliExpress child SKU from SKU + PRICE modules."""
+        try:
+            sku_mod = body.get("SKU") or body.get("sku") or {}
+            price_mod = body.get("PRICE") or body.get("price") or {}
+            sku_paths = sku_mod.get("skuPaths") or sku_mod.get("skuPathList") or []
+            if isinstance(sku_paths, dict):
+                sku_paths = list(sku_paths.values())
+            price_map = (
+                price_mod.get("skuPriceInfoMap")
+                or price_mod.get("skuIdStrPriceInfoMap")
+                or price_mod.get("skuPriceList")
+                or {}
+            )
+            if isinstance(price_map, list):
+                price_map = {
+                    str(item.get("skuIdStr") or item.get("skuId") or ""): item
+                    for item in price_map
+                    if isinstance(item, dict)
+                }
+            if not isinstance(sku_paths, list) or not isinstance(price_map, dict):
+                return []
+
+            prop_lookup = {}
+            color_prop_ids = set()
+            size_prop_ids = set()
+            props = sku_mod.get("skuProperties") or sku_mod.get("productSKUPropertyList") or []
+            for prop in props if isinstance(props, list) else []:
+                if not isinstance(prop, dict):
+                    continue
+                prop_id = str(prop.get("skuPropertyId") or prop.get("propertyId") or prop.get("id") or "")
+                prop_name = prop.get("skuPropertyName") or prop.get("propertyName") or prop.get("name") or ""
+                lower_name = str(prop_name).lower()
+                if any(token in lower_name for token in ("color", "colour", "색상", "색")) or prop.get("hasSkuImage"):
+                    color_prop_ids.add(prop_id)
+                if any(token in lower_name for token in ("size", "tamanho", "사이즈", "크기")):
+                    size_prop_ids.add(prop_id)
+                values = prop.get("skuPropertyValues") or prop.get("propertyValues") or prop.get("values") or []
+                for val in values if isinstance(values, list) else []:
+                    if not isinstance(val, dict):
+                        continue
+                    value_id = str(
+                        val.get("propertyValueIdLong")
+                        or val.get("propertyValueId")
+                        or val.get("id")
+                        or ""
+                    )
+                    if not prop_id or not value_id:
+                        continue
+                    prop_lookup[(prop_id, value_id)] = {
+                        "prop_name": prop_name,
+                        "name": (
+                            val.get("propertyValueDefinitionName")
+                            or val.get("propertyValueDisplayName")
+                            or val.get("propertyValueName")
+                            or val.get("name")
+                            or ""
+                        ),
+                        "image": val.get("skuPropertyImagePath") or val.get("propertyValueImage") or "",
+                    }
+
+            variants = []
+            for path in sku_paths:
+                if not isinstance(path, dict):
+                    continue
+                sku_id = str(path.get("skuIdStr") or path.get("skuId") or "")
+                sku_attr = str(path.get("skuAttr") or path.get("path") or "")
+                price_info = price_map.get(sku_id) or price_map.get(str(path.get("skuId") or ""))
+                if not sku_id or not isinstance(price_info, dict):
+                    continue
+
+                color_parts = []
+                size_parts = []
+                other_parts = []
+                color_image = ""
+                for segment in re.split(r"[;,\s]+", sku_attr):
+                    if ":" not in segment:
+                        continue
+                    prop_part, value_part = segment.split(":", 1)
+                    value_id = value_part.split("#", 1)[0]
+                    raw_name = value_part.split("#", 1)[1] if "#" in value_part else ""
+                    meta = prop_lookup.get((prop_part, value_id), {})
+                    label = meta.get("name") or raw_name or value_id
+                    if prop_part in color_prop_ids:
+                        color_parts.append(label)
+                        color_image = color_image or meta.get("image", "")
+                    elif prop_part in size_prop_ids:
+                        size_parts.append(label)
+                    else:
+                        other_parts.append(label)
+                        color_image = color_image or meta.get("image", "")
+
+                color = " / ".join(color_parts or other_parts) or sku_id
+                size = " / ".join(size_parts) if size_parts else "One Size"
+                price = self._format_api_variant_price(
+                    price_info.get("salePriceLocal")
+                    or price_info.get("salePriceString")
+                    or price_info.get("salePrice")
+                    or price_info.get("skuActivityAmount")
+                    or price_info.get("price")
+                )
+                old_price = self._format_api_variant_price(
+                    price_info.get("originalPrice")
+                    or price_info.get("skuAmount")
+                    or price_info.get("originalPriceLocal")
+                )
+                if color_image and color_image.startswith("//"):
+                    color_image = "https:" + color_image
+
+                variants.append({
+                    "sku_id": sku_id,
+                    "color": color,
+                    "color_image": color_image,
+                    "sizes": [size],
+                    "sold_out": int(path.get("skuStock") or 0) <= 0,
+                    "stock": path.get("skuStock"),
+                    "main_image": "",
+                    "price": price,
+                    "old_price": old_price,
+                })
+
+            return variants
+        except Exception as e:
+            verbose_output(f"  parse sku price variants: {e}")
+            return []
+
+    def _normalize_desc_image_url(self, url: str) -> str:
+        """Normalize a seller-description image URL."""
+        url = (url or "").strip().strip("\"'")
+        if not url:
+            return ""
+        if url.startswith("//"):
+            url = "https:" + url
+        return url
+
+    def _dedupe_urls(self, urls: List[str]) -> List[str]:
+        result = []
+        seen = set()
+        for url in urls:
+            url = self._normalize_desc_image_url(url)
+            key = self._desc_image_key(url)
+            if not url or key in seen:
+                continue
+            seen.add(key)
+            result.append(url)
+        return result
+
+    def _desc_image_key(self, url: str) -> str:
+        """Build a stable key so resized AliExpress copies dedupe to the original image."""
+        parsed = urlparse(url)
+        filename = os.path.basename(parsed.path).lower()
+        match = re.match(r"(.+?\.(?:jpg|jpeg|png|webp))", filename, re.I)
+        return match.group(1) if match else url.lower().split("?", 1)[0]
+
+    def _extract_desc_image_urls_from_payload(self, payload) -> List[str]:
+        """Extract detail image URLs from JSON payloads or HTML snippets."""
+        urls = []
+        image_re = re.compile(r"(?:https?:)?//[^'\"()\s<>]+?\.(?:jpg|jpeg|png|webp)(?:\?[^'\"()\s<>]*)?", re.I)
+
+        def walk(obj):
+            if isinstance(obj, dict):
+                for value in obj.values():
+                    walk(value)
+            elif isinstance(obj, list):
+                for value in obj:
+                    walk(value)
+            elif isinstance(obj, str):
+                for match in image_re.findall(obj):
+                    urls.append(match)
+                for match in re.findall(r"<img[^>]+(?:src|data-src|data-lazy-src)=['\"]([^'\"]+)['\"]", obj, re.I):
+                    urls.append(match)
+
+        walk(payload)
+        return self._dedupe_urls(urls)
+
+    def _extract_desc_urls(self) -> List[str]:
+        """Find all AliExpress seller-description URLs from intercepted API data."""
+        wanted = ("nativeDescUrl", "pcDescUrl", "msiteDescUrl", "descUrl", "descriptionUrl")
+        priority = {name: idx for idx, name in enumerate(wanted)}
+        found = []
+
+        def walk(obj):
+            if isinstance(obj, dict):
+                for key, value in obj.items():
+                    if key in wanted and isinstance(value, str) and value:
+                        found.append((priority[key], value))
+                    walk(value)
+            elif isinstance(obj, list):
+                for value in obj:
+                    walk(value)
+            elif isinstance(obj, str):
+                try:
+                    decoded = json.loads(obj)
+                except Exception:
+                    return
+                walk(decoded)
+
+        for pattern in self._API_PATTERNS:
+            data = self._intercepted_data.get(pattern)
+            if data:
+                walk(data)
+
+        ordered = [url for _, url in sorted(found, key=lambda item: item[0])]
+        return self._dedupe_urls(ordered)
+
+    def _fetch_text(self, url: str) -> str:
+        """Fetch a description resource, preferring browser context when available."""
+        for _ in range(2):
+            if self.page:
+                try:
+                    js_url = json.dumps(url)
+                    raw = self.page.evaluate(f"""async () => {{
+                        try {{
+                            const resp = await fetch({js_url}, {{ credentials: 'include' }});
+                            return await resp.text();
+                        }} catch(e) {{ return ''; }}
+                    }}""")
+                    if raw:
+                        return raw
+                except Exception:
+                    pass
+            try:
+                import requests
+                resp = requests.get(url, timeout=20, headers={"User-Agent": "Mozilla/5.0"})
+                if resp.ok and resp.text:
+                    return resp.text
+            except Exception:
+                pass
+        return ""
+
+    def _extract_desc_images_from_page(self) -> List[str]:
+        """Fallback: read currently rendered product-description images from DOM."""
+        if not self.page:
+            return []
+        try:
+            urls = self.page.evaluate("""() => {
+                const roots = [
+                    '#product-description',
+                    '[class*="detail-desc"]',
+                    '[class*="product-description"]',
+                    '[class*="description--"]',
+                    '[data-pl*="product-description"]'
+                ];
+                const found = [];
+                const add = (value) => { if (value && /\\.(jpg|jpeg|png|webp)(\\?|$)/i.test(value)) found.push(value); };
+                for (const selector of roots) {
+                    document.querySelectorAll(selector).forEach(root => {
+                        root.querySelectorAll('img').forEach(img => {
+                            add(img.getAttribute('src'));
+                            add(img.getAttribute('data-src'));
+                            add(img.getAttribute('data-lazy-src'));
+                            const srcset = img.getAttribute('srcset') || '';
+                            if (srcset) add(srcset.split(',')[0].trim().split(/\\s+/)[0]);
+                        });
+                        const html = root.innerHTML || '';
+                        [...html.matchAll(/(?:https?:)?\\/\\/[^'"()\\s<>]+?\\.(?:jpg|jpeg|png|webp)(?:\\?[^'"()\\s<>]*)?/ig)]
+                            .forEach(match => add(match[0]));
+                    });
+                }
+                return found;
+            }""")
+            return self._dedupe_urls(urls or [])
+        except Exception:
+            return []
+
     def _fetch_desc_images(self) -> List[str]:
-        """Fetch seller product description images from nativeDescUrl API."""
+        """Fetch seller product description images from native/PC/mobile desc resources."""
         images = []
         try:
-            # Extract nativeDescUrl from intercepted mtop API data
-            desc_url = ""
-            for pattern in self._API_PATTERNS:
-                data = self._intercepted_data.get(pattern)
-                if not data:
+            for desc_url in self._extract_desc_urls():
+                raw = self._fetch_text(desc_url)
+                if not raw:
                     continue
-                body = data
-                for key in ('data', 'result', 'DESC'):
-                    if isinstance(body, dict) and key in body:
-                        body = body[key]
-                if isinstance(body, str):
-                    try:
-                        body = json.loads(body)
-                    except Exception:
-                        pass
-                if isinstance(body, dict) and 'nativeDescUrl' in body:
-                    desc_url = body['nativeDescUrl']
-                    break
-
-            if not desc_url:
-                return images
-
-            # Fetch via browser (uses proxy), fall back to direct requests
-            if self.page:
-                raw = self.page.evaluate(f"""async () => {{
-                    try {{
-                        const resp = await fetch('{desc_url}');
-                        return await resp.text();
-                    }} catch(e) {{ return ''; }}
-                }}""")
-                if raw:
-                    try:
-                        desc_data = json.loads(raw)
-                        modules = desc_data.get('moduleList', [])
-                        for mod in modules:
-                            if mod.get('type') == 'image':
-                                url = mod.get('data', {}).get('url', '')
-                                if url:
-                                    images.append(url)
-                        return images
-                    except Exception:
-                        pass
-
-            # Fallback: direct request
-            import requests
-            resp = requests.get(desc_url, timeout=20)
-            desc_data = resp.json()
-            modules = desc_data.get('moduleList', [])
-            for mod in modules:
-                if mod.get('type') == 'image':
-                    url = mod.get('data', {}).get('url', '')
-                    if url:
-                        images.append(url)
+                try:
+                    payload = json.loads(raw)
+                except Exception:
+                    payload = raw
+                images.extend(self._extract_desc_image_urls_from_payload(payload))
+            if not images:
+                images.extend(self._extract_desc_images_from_page())
         except Exception as e:
             verbose_output(f"  desc images: {e}")
-        return images
+        return self._dedupe_urls(images)
 
     def _extract_from_api(self) -> Optional[dict]:
         """Extract product data: region switch → JS eval → API → merge → fallback HTML."""
@@ -974,6 +1220,10 @@ class AliExpress(BaseScraper):
                 merged['colors'] = api_result['colors']
             if api_result.get('sizes') and api_result['sizes'] != ['One Size']:
                 merged['sizes'] = api_result['sizes']
+            if api_result.get('variants'):
+                merged['variants'] = api_result['variants']
+            if api_result.get('color_images'):
+                merged['color_images'] = api_result['color_images']
             merged['_source'] = 'js+api'
             result = merged
         else:
@@ -981,7 +1231,7 @@ class AliExpress(BaseScraper):
 
         # Tier 3: Click through color swatches for accurate color names + sizes per variant
         if result:
-            clicked_variants = self._extract_variants_click()
+            clicked_variants = [] if result.get('variants') else self._extract_variants_click()
             if clicked_variants:
                 # Use clicked data (richer: per-color sizes + per-color price)
                 # Parse per-variant clicked price; fall back to product-level current price
@@ -1033,7 +1283,7 @@ class AliExpress(BaseScraper):
                     f"{BackgroundColors.GREEN}Clicked {len(variants)} color swatches, "
                     f"{len(all_sizes)} sizes total{Style.RESET_ALL}"
                 )
-            else:
+            elif not result.get('variants'):
                 # Fallback: build from JS-extracted colors (single product-level price)
                 colors = result.get('colors', []) or []
                 variant_imgs = result.get('variant_images', []) or []
@@ -1118,6 +1368,8 @@ class AliExpress(BaseScraper):
                 or body.get("title")
                 or body.get("productName")
                 or body.get("name", "")
+                or ((body.get("GLOBAL_DATA") or {}).get("globalData") or {}).get("subject", "")
+                or (body.get("PRODUCT_TITLE") or {}).get("text", "")
             )
             if not name:
                 return None
@@ -1166,11 +1418,29 @@ class AliExpress(BaseScraper):
                 images = [images]
 
             # Variants / SKUs
+            api_variants = self._parse_sku_variants_from_api_body(body)
             variants = body.get("skuList") or body.get("variants") or body.get("skuAttr") or []
             colors = []
             sizes = []
             sku_map = {}
-            if isinstance(variants, list):
+            color_images = {}
+            if api_variants:
+                for v in api_variants:
+                    color = v.get("color", "")
+                    if color and color not in colors:
+                        colors.append(color)
+                    for size in v.get("sizes", []) or []:
+                        if size and size not in sizes:
+                            sizes.append(size)
+                    if color and v.get("color_image"):
+                        color_images[color] = v["color_image"]
+                    if color:
+                        sku_map[color] = {
+                            "price": v.get("price", ""),
+                            "image": v.get("color_image", ""),
+                            "sku_id": v.get("sku_id", ""),
+                        }
+            elif isinstance(variants, list):
                 for v in variants:
                     if isinstance(v, dict):
                         prop = v.get("skuAttr") or v.get("prop") or v.get("name", "")
@@ -1212,6 +1482,8 @@ class AliExpress(BaseScraper):
                 "images": images,
                 "colors": colors,
                 "sizes": sizes or ["One Size"],
+                "variants": api_variants,
+                "color_images": color_images,
                 "sku_map": sku_map,
                 "seller_name": seller_name,
                 "seller_url": seller_url,
