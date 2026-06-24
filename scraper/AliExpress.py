@@ -1058,6 +1058,55 @@ class AliExpress(BaseScraper):
             existing = result.get("variant_images") or []
             result["variant_images"] = self._dedupe_urls(existing + variant_urls)
 
+    def _apply_clicked_variants(self, result: dict, clicked_variants: List[dict]) -> None:
+        """Apply DOM-clicked variants without guessing variant images from gallery position."""
+        if not result or not clicked_variants:
+            return
+
+        def _parse_clicked_price(raw):
+            if not raw:
+                return None
+            match = re.search(r"([\d,\.]+)", str(raw).replace(",", ".").replace(" ", ""))
+            if match:
+                try:
+                    return f"{float(match.group(1)):.2f}"
+                except Exception:
+                    pass
+            return None
+
+        proj_cur = f"{result.get('current_price_integer','')}.{result.get('current_price_decimal','00')}"
+        proj_cur_f = proj_cur if result.get('current_price_integer') and result['current_price_integer'] != '0' else ''
+        variants = []
+        color_images = {}
+        variant_images = []
+
+        for cv in clicked_variants:
+            color = cv.get("color", "")
+            color_image = cv.get("color_image", "")
+            cv_price = _parse_clicked_price(cv.get("price", "")) or proj_cur_f or ""
+            variants.append({
+                "color": color,
+                "color_image": color_image,
+                "sizes": cv.get("sizes", result.get("sizes", [])),
+                "sold_out": cv.get("sold_out", False),
+                "main_image": result.get('images', [None])[0] if result.get('images') else '',
+                "price": cv_price,
+            })
+            if color and color_image:
+                color_images[color] = color_image
+            if color_image:
+                variant_images.append(color_image)
+
+        result["variants"] = variants
+        if color_images:
+            result["color_images"] = color_images
+        if variant_images:
+            result["variant_images"] = self._dedupe_urls(variant_images)
+            result["variant_image_source"] = "dom"
+        else:
+            result["variant_images"] = []
+            result["variant_image_source"] = "none"
+
     def _normalize_desc_image_url(self, url: str) -> str:
         """Normalize a seller-description image URL."""
         url = (url or "").strip().strip("\"'")
@@ -1305,6 +1354,8 @@ class AliExpress(BaseScraper):
                 merged['variants'] = api_result['variants']
             if api_result.get('color_images'):
                 merged['color_images'] = api_result['color_images']
+            if api_result.get('variant_image_source'):
+                merged['variant_image_source'] = api_result['variant_image_source']
             merged['_source'] = 'js+api'
             result = merged
         else:
@@ -1315,53 +1366,18 @@ class AliExpress(BaseScraper):
             clicked_variants = [] if result.get('variants') else self._extract_variants_click()
             if clicked_variants:
                 # Use clicked data (richer: per-color sizes + per-color price)
-                # Parse per-variant clicked price; fall back to product-level current price
-                def _parse_clicked_price(raw):
-                    if not raw:
-                        return None
-                    import re
-                    m = re.search(r'([\\d,\\.]+)', str(raw).replace(',', '.').replace(' ', ''))
-                    if m:
-                        try:
-                            return f"{float(m.group(1)):.2f}"
-                        except:
-                            pass
-                    return None
-                proj_cur = f"{result.get('current_price_integer','')}.{result.get('current_price_decimal','00')}"
-                proj_cur_f = proj_cur if result.get('current_price_integer') and result['current_price_integer'] != '0' else ''
-                variants = []
-                for cv in clicked_variants:
-                    cv_price_raw = cv.get("price", "")
-                    cv_price = _parse_clicked_price(cv_price_raw) or proj_cur_f or ""
-                    variants.append({
-                        "color": cv.get("color", ""),
-                        "color_image": cv.get("color_image", ""),
-                        "sizes": cv.get("sizes", result.get("sizes", [])),
-                        "sold_out": cv.get("sold_out", False),
-                        "main_image": result.get('images', [None])[0] if result.get('images') else '',
-                        "price": cv_price,
-                    })
-                result['variants'] = variants
-                # Split by position: last N images = variant images (one per color)
-                all_imgs = result.get('images', []) or []
-                n = len(variants)
-                if n > 0 and len(all_imgs) > n:
-                    result['variant_images'] = all_imgs[-n:]
-                    result['images'] = all_imgs[:-n]
-                    for i, v in enumerate(variants):
-                        if i < n:
-                            v['color_image'] = result['variant_images'][i]
+                self._apply_clicked_variants(result, clicked_variants)
                 # Also update colors/sizes from clicked data for consistency
-                result['colors'] = [v['color'] for v in variants]
+                result['colors'] = [v['color'] for v in result.get('variants', [])]
                 all_sizes = []
-                for v in variants:
+                for v in result.get('variants', []):
                     for s in v.get('sizes', []):
                         if s not in all_sizes:
                             all_sizes.append(s)
                 if all_sizes:
                     result['sizes'] = all_sizes
                 verbose_output(
-                    f"{BackgroundColors.GREEN}Clicked {len(variants)} color swatches, "
+                    f"{BackgroundColors.GREEN}Clicked {len(result.get('variants', []))} color swatches, "
                     f"{len(all_sizes)} sizes total{Style.RESET_ALL}"
                 )
             elif not result.get('variants'):
@@ -1384,6 +1400,7 @@ class AliExpress(BaseScraper):
                             "price": proj_cur_f,
                         })
                     result['variants'] = variants
+                    result['variant_image_source'] = "dom" if any(v.get("color_image") for v in variants) else "none"
 
         if result:
             self._remove_variant_images_from_gallery(result)
@@ -1508,6 +1525,7 @@ class AliExpress(BaseScraper):
             sizes = []
             sku_map = {}
             color_images = {}
+            variant_image_source = "none"
             if api_variants:
                 for v in api_variants:
                     color = v.get("color", "")
@@ -1518,6 +1536,7 @@ class AliExpress(BaseScraper):
                             sizes.append(size)
                     if color and v.get("color_image"):
                         color_images[color] = v["color_image"]
+                        variant_image_source = "api"
                     if color:
                         sku_map[color] = {
                             "price": v.get("price", ""),
@@ -1541,6 +1560,8 @@ class AliExpress(BaseScraper):
                                 "price": price,
                                 "image": v.get("skuImage") or v.get("img") or "",
                             }
+                            if sku_map[val]["image"]:
+                                variant_image_source = "api"
 
             # Seller info
             seller = body.get("seller") or body.get("store") or body.get("storeInfo") or {}
@@ -1568,6 +1589,7 @@ class AliExpress(BaseScraper):
                 "sizes": sizes or ["One Size"],
                 "variants": api_variants,
                 "color_images": color_images,
+                "variant_image_source": variant_image_source,
                 "sku_map": sku_map,
                 "seller_name": seller_name,
                 "seller_url": seller_url,

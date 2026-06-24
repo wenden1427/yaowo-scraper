@@ -61,6 +61,52 @@ class AliExpressApiVariantsTest(unittest.TestCase):
                 ("large color B", "13999"),
             ],
         )
+        self.assertEqual(parsed["variant_image_source"], "api")
+
+    def test_parse_api_data_marks_text_sku_without_variant_images(self):
+        scraper = AliExpress("https://ko.aliexpress.com/item/1005012082451253.html", skip_media=True)
+        api_data = {
+            "data": {
+                "result": {
+                    "GLOBAL_DATA": {"globalData": {"subject": "pet bed"}},
+                    "PRODUCT_TITLE": {"text": "pet bed"},
+                    "PRICE": {
+                        "skuPriceInfoMap": {
+                            "12000057469729947": {"salePriceLocal": "28500"},
+                            "12000057469729949": {"salePriceLocal": "54300"},
+                        }
+                    },
+                    "SKU": {
+                        "skuPaths": [
+                            {"path": "232989633:-1", "skuIdStr": "12000057469729947", "skuStock": 11},
+                            {"path": "232989633:-3", "skuIdStr": "12000057469729949", "skuStock": 954},
+                        ],
+                        "skuProperties": [
+                            {
+                                "skuPropertyId": 232989633,
+                                "skuPropertyName": "상품사양",
+                                "skuPropertyValues": [
+                                    {"propertyValueIdLong": -1, "propertyValueDisplayName": "large nest", "skuPropertyImagePath": ""},
+                                    {"propertyValueIdLong": -3, "propertyValueDisplayName": "portable nest", "skuPropertyImagePath": ""},
+                                ],
+                            }
+                        ],
+                    },
+                    "imageUrlList": [
+                        "https://ae-pic-a1.aliexpress-media.com/kf/main.jpg",
+                        "https://ae-pic-a1.aliexpress-media.com/kf/side-a.jpg",
+                        "https://ae-pic-a1.aliexpress-media.com/kf/side-b.jpg",
+                    ],
+                }
+            }
+        }
+
+        parsed = scraper._parse_api_data(api_data)
+
+        self.assertEqual(parsed["variant_image_source"], "none")
+        self.assertEqual(parsed["color_images"], {})
+        self.assertEqual(parsed["images"], api_data["data"]["result"]["imageUrlList"])
+        self.assertEqual([v["color_image"] for v in parsed["variants"]], ["", ""])
 
     def test_remove_variant_images_from_gallery_keeps_main_images_only(self):
         scraper = AliExpress("https://ko.aliexpress.com/item/1005011615735274.html", skip_media=True)
@@ -93,6 +139,41 @@ class AliExpressApiVariantsTest(unittest.TestCase):
                 "https://ae-pic-a1.aliexpress-media.com/kf/variant-b.jpg",
             ],
         )
+
+    def test_click_variants_use_only_real_swatch_images_not_gallery_tail(self):
+        scraper = AliExpress("https://ko.aliexpress.com/item/1.html", skip_media=True)
+        result = {
+            "images": [
+                "https://ae-pic-a1.aliexpress-media.com/kf/main.jpg",
+                "https://ae-pic-a1.aliexpress-media.com/kf/gallery-a.jpg",
+                "https://ae-pic-a1.aliexpress-media.com/kf/gallery-b.jpg",
+            ],
+            "current_price_integer": "100",
+            "current_price_decimal": "00",
+        }
+        clicked_variants = [
+            {"color": "Red", "color_image": "https://ae-pic-a1.aliexpress-media.com/kf/red.jpg", "sizes": ["One Size"], "price": "100"},
+            {"color": "Blue", "color_image": "https://ae-pic-a1.aliexpress-media.com/kf/blue.jpg", "sizes": ["One Size"], "price": "100"},
+        ]
+
+        scraper._apply_clicked_variants(result, clicked_variants)
+
+        self.assertEqual(
+            result["images"],
+            [
+                "https://ae-pic-a1.aliexpress-media.com/kf/main.jpg",
+                "https://ae-pic-a1.aliexpress-media.com/kf/gallery-a.jpg",
+                "https://ae-pic-a1.aliexpress-media.com/kf/gallery-b.jpg",
+            ],
+        )
+        self.assertEqual(
+            result["variant_images"],
+            [
+                "https://ae-pic-a1.aliexpress-media.com/kf/red.jpg",
+                "https://ae-pic-a1.aliexpress-media.com/kf/blue.jpg",
+            ],
+        )
+        self.assertEqual(result["variant_image_source"], "dom")
 
 
 if __name__ == "__main__":
