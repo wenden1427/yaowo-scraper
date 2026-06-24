@@ -92,6 +92,8 @@ class AliExpress(BaseScraper):
     """AliExpress product scraper with JS extraction + API interception."""
 
     PLATFORM_NAME = "AliExpress"
+    _DESC_WAIT_SECONDS = 8
+    _DESC_POLL_SECONDS = 0.5
 
     # API URL patterns to intercept (in priority order)
     _API_PATTERNS = [
@@ -1195,10 +1197,52 @@ class AliExpress(BaseScraper):
         except Exception:
             return []
 
+    def _trigger_description_lazy_load(self) -> None:
+        """Nudge the page so AliExpress loads the seller description module."""
+        if not self.page:
+            return
+        try:
+            self.page.evaluate("""() => {
+                const selectors = [
+                    '#product-description',
+                    '[class*="detail-desc"]',
+                    '[class*="product-description"]',
+                    '[class*="description--"]',
+                    '[data-pl*="product-description"]'
+                ];
+                const root = selectors.map(sel => document.querySelector(sel)).find(Boolean);
+                if (root) {
+                    root.scrollIntoView({ block: 'center' });
+                } else {
+                    window.scrollTo(0, Math.floor(document.body.scrollHeight * 0.75));
+                }
+                window.dispatchEvent(new Event('scroll'));
+            }""")
+        except Exception:
+            pass
+
+    def _wait_for_desc_sources(self) -> None:
+        """Wait briefly for late description API data or rendered detail images."""
+        if not self.page:
+            return
+        import time
+        wait_seconds = getattr(self, "_DESC_WAIT_SECONDS", 8)
+        poll_seconds = getattr(self, "_DESC_POLL_SECONDS", 0.5)
+        deadline = time.time() + max(0, wait_seconds)
+
+        while True:
+            if self._extract_desc_urls() or self._extract_desc_images_from_page():
+                return
+            if time.time() >= deadline:
+                return
+            self._trigger_description_lazy_load()
+            time.sleep(max(0.01, poll_seconds))
+
     def _fetch_desc_images(self) -> List[str]:
         """Fetch seller product description images from native/PC/mobile desc resources."""
         images = []
         try:
+            self._wait_for_desc_sources()
             for desc_url in self._extract_desc_urls():
                 raw = self._fetch_text(desc_url)
                 if not raw:

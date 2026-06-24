@@ -71,6 +71,31 @@ class AliExpressDescriptionImagesTest(unittest.TestCase):
             ["https://ae01.alicdn.com/kf/Sabc123.jpg"],
         )
 
+    def test_waits_for_late_rendered_description_images(self):
+        class DelayedDescriptionPage:
+            def __init__(self):
+                self.detail_checks = 0
+
+            def evaluate(self, script):
+                if "window.scroll" in script:
+                    return None
+                if "querySelectorAll" in script:
+                    self.detail_checks += 1
+                    if self.detail_checks == 1:
+                        return []
+                    return ["https://ae01.alicdn.com/kf/Sdetail123.jpg"]
+                return None
+
+        scraper = AliExpress("https://ko.aliexpress.com/item/1.html", skip_media=True)
+        scraper.page = DelayedDescriptionPage()
+        scraper._DESC_WAIT_SECONDS = 0.05
+        scraper._DESC_POLL_SECONDS = 0.01
+
+        self.assertEqual(
+            scraper._fetch_desc_images(),
+            ["https://ae01.alicdn.com/kf/Sdetail123.jpg"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
